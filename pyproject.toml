@@ -1,0 +1,55 @@
+[project]
+name = "heimdallr"
+version = "0.1.0"
+description = "TUI for managing Claude Code and Codex sessions — list, resume, detect running, transfer context"
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.12"
+dependencies = [
+    "textual>=8.2.0",
+    "rich>=13.0.0,<14.3.2",
+    "click>=8.0.0",
+    "click-default-group>=1.2.4",
+    "humanize>=4.14.0",
+    "orjson>=3.10.0",
+    "tantivy>=0.25.0",
+    "psutil>=6.0.0",
+    "pydantic>=2.10.0",
+    "sqlite-utils>=3.39",
+    "tiktoken>=0.12.0",
+]
+
+[project.scripts]
+hmd = "heimdallr.cli:main"
+heimdallr = "heimdallr.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/heimdallr"]
+artifacts = ["src/heimdallr/running/resume_wrapper.sh"]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.0",
+    "pytest-xdist>=3.8.0",
+    "ruff>=0.6",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+addopts = "-n auto"
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "RUF"]
+# RUF012: Textual's idiomatic BINDINGS class attribute is a mutable list — that's expected.
+# RUF022/RUF005: stylistic, not worth churning over.
+ignore = ["E501", "RUF012", "RUF022", "RUF005"]
