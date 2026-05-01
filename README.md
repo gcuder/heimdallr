@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="src/heimdallr/assets/logo.png" alt="heimdallr" width="120"/>
+</p>
+
 # heimdallr
 
 A terminal watchman for your parallel sessions of any agentic AI CLI — monitor, remember, document.

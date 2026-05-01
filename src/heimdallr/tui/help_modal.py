@@ -26,10 +26,12 @@ _HELP: list[tuple[str, list[tuple[str, str]]]] = [
     (
         "Actions",
         [
-            ("enter", "Resume the highlighted session (heimdallr exits, agent runs)"),
+            ("enter", "Resume — jump to running terminal or spawn a new window"),
+            ("shift+enter", "Resume in YOLO mode (Claude --dangerously-skip-permissions)"),
             ("c", "Copy resume command to clipboard"),
             ("t", "Open transfer modal (compact + inject context)"),
             ("p", "Pin / unpin the highlighted session"),
+            ("m", "Toggle visibility of claude-mem observer sessions"),
             ("i", "Bring the attached IDE window to the front"),
             ("r", "Force a full rescan + reindex"),
         ],
@@ -40,7 +42,6 @@ _HELP: list[tuple[str, list[tuple[str, str]]]] = [
             ("1   2   3", "View: All / Running / Recent (last 24h)"),
             ("o", "Cycle sort: recent → running → pinned → project"),
             ("ctrl+`", "Toggle preview pane"),
-            ("+ / -", "Resize preview pane"),
         ],
     ),
     (

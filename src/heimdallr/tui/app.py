@@ -6,7 +6,6 @@ import logging
 import os
 import shlex
 import time
-from collections.abc import Callable
 from datetime import datetime, timedelta
 
 from textual import on, work
@@ -17,14 +16,21 @@ from textual.css.query import NoMatches
 from textual.reactive import reactive
 from textual.widgets import Footer, Input, Label
 
-from .. import __version__, bookmarks
-from ..config import LOG_FILE
+from .. import __version__, bookmarks, settings
+from ..config import DB_PATH, LOG_FILE
 from ..models import ParseError, RunningInfo, Session
-from ..running import RunningDetector, RunningSnapshot
+from ..running import (
+    RunningDetector,
+    RunningSnapshot,
+    find_terminal_pid,
+    spawn_new_terminal,
+    wrapper_path,
+)
+from ..running.ide_activate import activate as activate_pid
 from ..search import SessionSearch
 from ..transfer import build_inject_plan, execute_plan
 from .filter_bar import AGENT_FILTER_KEYS, VIEW_MODES, FilterBar
-from .modal import YoloModeModal
+from .logo import LogoWidget
 from .preview import SessionPreview
 from .query import extract_agent_from_query, update_agent_in_query
 from .results_table import ResultsTable
@@ -50,6 +56,7 @@ class HeimdallrApp(App):
         Binding("ctrl+c", "quit", "Quit", show=False),
         Binding("/", "focus_search", "Search", priority=True),
         Binding("enter", "resume_session", "Resume"),
+        Binding("shift+enter", "resume_session_yolo", "YOLO"),
         Binding("c", "copy_path", "Copy", priority=True),
         Binding("ctrl+grave_accent", "toggle_preview", "Preview", priority=True),
         Binding("tab", "accept_suggestion", "Accept", show=False, priority=True),
@@ -59,9 +66,6 @@ class HeimdallrApp(App):
         Binding("up", "cursor_up", "Up", show=False),
         Binding("pagedown", "page_down", "PgDn", show=False),
         Binding("pageup", "page_up", "PgUp", show=False),
-        Binding("plus", "increase_preview", "+", show=False),
-        Binding("equals", "increase_preview", "+", show=False),
-        Binding("minus", "decrease_preview", "-", show=False),
         Binding("1", "view_mode('all')", "All"),
         Binding("2", "view_mode('running')", "Running"),
         Binding("3", "view_mode('recent')", "Recent"),
@@ -69,6 +73,7 @@ class HeimdallrApp(App):
         Binding("i", "activate_ide", "Jump to IDE", show=False),
         Binding("t", "transfer", "Transfer", show=False),
         Binding("p", "toggle_pin", "Pin", show=False),
+        Binding("m", "toggle_claude_mem", "Mem", show=False),
         Binding("o", "cycle_sort", "Sort", show=False),
         Binding("question_mark", "help", "Help", show=False),
         Binding("ctrl+p", "command_palette", "Cmds"),
@@ -80,7 +85,6 @@ class HeimdallrApp(App):
     active_view: reactive[str] = reactive("all")
     sort_mode: reactive[str] = reactive("recent")  # recent | running | pinned | project
     is_loading: reactive[bool] = reactive(True)
-    preview_height: reactive[int] = reactive(12)
     search_query: reactive[str] = reactive("", init=False)
     query_time_ms: reactive[float | None] = reactive(None)
     _spinner_frame: int = 0
@@ -115,8 +119,10 @@ class HeimdallrApp(App):
     def compose(self) -> ComposeResult:
         with Vertical():
             with Horizontal(id="title-bar"):
-                yield Label(f"heimdallr v{__version__}", id="app-title")
-                yield Label("", id="session-count")
+                yield LogoWidget()
+                with Vertical(id="title-text"):
+                    yield Label(f"heimdallr v{__version__}", id="app-title")
+                    yield Label("", id="session-count")
 
             with Horizontal(id="search-row"):
                 with Horizontal(id="search-box"):
@@ -133,6 +139,7 @@ class HeimdallrApp(App):
             yield FilterBar(
                 initial_filter=self.agent_filter,
                 initial_view="all",
+                initial_show_claude_mem=not settings.current().filters.hide_claude_mem,
                 id="filter-container",
             )
 
@@ -412,25 +419,11 @@ class HeimdallrApp(App):
 
     # ---- resume -----------------------------------------------------------
 
-    def _resolve_yolo_mode(
-        self,
-        action: Callable[[bool], None],
-        modal_callback: Callable[[bool | None], None],
-    ) -> None:
-        assert self.selected_session is not None
-        adapter = self.search_engine.get_adapter_for_session(self.selected_session)
-        if self.yolo or self.selected_session.yolo:
-            action(True)
-            return
-        if adapter and adapter.supports_yolo:
-            self.push_screen(YoloModeModal(), modal_callback)
-            return
-        action(False)
-
     def action_copy_path(self) -> None:
+        """Copy resume command to clipboard. Plain `c` copies normal-mode."""
         if not self.selected_session:
             return
-        self._resolve_yolo_mode(self._do_copy_command, self._on_copy_yolo_modal_result)
+        self._do_copy_command(yolo=self.yolo or self.selected_session.yolo)
 
     def _do_copy_command(self, yolo: bool) -> None:
         assert self.selected_session is not None
@@ -446,29 +439,98 @@ class HeimdallrApp(App):
         else:
             self.notify(full, title="Clipboard unavailable", timeout=5)
 
-    def _on_copy_yolo_modal_result(self, result: bool | None) -> None:
-        if result is not None:
-            self._do_copy_command(yolo=result)
-
     def action_resume_session(self) -> None:
+        """Resume the selected session. Jump to a running terminal if one
+        exists; otherwise spawn a new terminal window via the CLI."""
         if not self.selected_session:
             return
-        self._resolve_yolo_mode(self._do_resume, self._on_yolo_modal_result)
+        self._do_resume(yolo=self.yolo or self.selected_session.yolo)
+
+    def action_resume_session_yolo(self) -> None:
+        """Resume with `--dangerously-skip-permissions` (Claude) regardless
+        of the user's normal default."""
+        if not self.selected_session:
+            return
+        self._do_resume(yolo=True)
 
     def _do_resume(self, yolo: bool) -> None:
         assert self.selected_session is not None
-        self._resume_command = self.search_engine.get_resume_command(
-            self.selected_session, yolo=yolo
-        )
-        self._resume_directory = self.selected_session.directory
-        self._resume_session_id = self.selected_session.id
-        self._resume_agent = self.selected_session.agent
-        bookmarks.record_open(self.selected_session.id)
+        sess = self.selected_session
+        running = self._running_info.get(sess.id)
+
+        # If the session is already running, never spawn a duplicate. Try to
+        # jump to whichever window hosts it; if we can't locate a window,
+        # keep hmd open and notify rather than silently relaunching.
+        if running and running.is_running:
+            if self._jump_to_running_window(running):
+                return
+            self.notify(
+                "Session is running but I couldn't locate its terminal/IDE window.",
+                severity="warning",
+                timeout=5,
+            )
+            return
+
+        # Not running — spawn a new terminal window directly so hmd stays
+        # open. Only exit and let the CLI take over if window-spawning isn't
+        # available (Linux, no $TERM_PROGRAM, etc.).
+        cmd = self.search_engine.get_resume_command(sess, yolo=yolo)
+        if not cmd:
+            self.notify("No resume command available", severity="warning", timeout=3)
+            return
+        directory = sess.directory or os.getcwd()
+        argv = self._build_wrapped_argv(sess.id, sess.agent, cmd)
+
+        bookmarks.record_open(sess.id)
+
+        if spawn_new_terminal(directory, argv):
+            self.notify(
+                f"Resumed in new terminal — {sess.title[:40]}", timeout=3
+            )
+            return
+
+        # Fallback: hand off to the CLI which will os.execvp in this shell.
+        self._resume_command = cmd
+        self._resume_directory = directory
+        self._resume_session_id = sess.id
+        self._resume_agent = sess.agent
         self.exit()
 
-    def _on_yolo_modal_result(self, result: bool | None) -> None:
-        if result is not None:
-            self._do_resume(yolo=result)
+    def _build_wrapped_argv(
+        self, session_id: str, agent: str, cmd: list[str]
+    ) -> list[str]:
+        """Wrap the agent invocation through resume_wrapper.sh so its $$
+        lands in spawned_pids — gives the detector high-confidence ownership."""
+        return [
+            "/bin/sh",
+            str(wrapper_path()),
+            str(DB_PATH),
+            session_id,
+            agent,
+            *cmd,
+        ]
+
+    def _jump_to_running_window(self, running: RunningInfo) -> bool:
+        """Bring the window hosting `running` to the front. Try the agent's
+        host terminal first; fall back to the attached IDE. Returns True if
+        any activation succeeded."""
+        if running.pid:
+            term = find_terminal_pid(running.pid)
+            if term is not None:
+                ok, msg = activate_pid(term.pid, term.name)
+                if ok:
+                    self.notify(f"Jumped to {term.name}", timeout=3)
+                    return True
+                logger.debug("activate_pid(terminal=%s) failed: %s", term.name, msg)
+            else:
+                logger.debug("find_terminal_pid(pid=%s) returned no match", running.pid)
+        if running.ide_pid:
+            ok, msg = activate_pid(running.ide_pid, running.ide)
+            if ok:
+                self.notify(f"Jumped to {running.ide}", timeout=3)
+                return True
+            logger.debug("activate_pid(ide=%s) failed: %s", running.ide, msg)
+        return False
 
     # ---- ui actions -------------------------------------------------------
 
@@ -498,19 +560,6 @@ class HeimdallrApp(App):
         table = self.query_one(ResultsTable)
         for _ in range(10):
             table.action_cursor_up()
-
-    def action_increase_preview(self) -> None:
-        if self.preview_height < 30:
-            self.preview_height += 3
-            self._apply_preview_height()
-
-    def action_decrease_preview(self) -> None:
-        if self.preview_height > 6:
-            self.preview_height -= 3
-            self._apply_preview_height()
-
-    def _apply_preview_height(self) -> None:
-        self.query_one("#preview-container").styles.height = self.preview_height
 
     def action_view_mode(self, mode: str) -> None:
         if mode not in VIEW_MODES:
@@ -641,9 +690,6 @@ class HeimdallrApp(App):
         self._do_search(self._current_query)
 
     def action_accept_suggestion(self) -> None:
-        if isinstance(self.screen, YoloModeModal):
-            self.screen.action_toggle_focus()
-            return
         search_input = self.query_one("#search-input", Input)
         if search_input._suggestion:
             search_input.action_cursor_right()
@@ -672,6 +718,25 @@ class HeimdallrApp(App):
     @on(FilterBar.ViewChanged)
     def on_filter_bar_view_changed(self, event: FilterBar.ViewChanged) -> None:
         self.action_view_mode(event.view)
+
+    @on(FilterBar.ClaudeMemToggled)
+    def on_filter_bar_claude_mem_toggled(
+        self, _event: FilterBar.ClaudeMemToggled
+    ) -> None:
+        self.action_toggle_claude_mem()
+
+    def action_toggle_claude_mem(self) -> None:
+        s = settings.current()
+        s.filters.hide_claude_mem = not s.filters.hide_claude_mem
+        settings.update(s)
+        self.query_one(FilterBar).set_show_claude_mem(not s.filters.hide_claude_mem)
+        self.notify(
+            "Showing claude-mem sessions"
+            if not s.filters.hide_claude_mem
+            else "Hiding claude-mem sessions",
+            timeout=2,
+        )
+        self._do_search(self._current_query)
 
     # ---- exit-time handoff to CLI ----------------------------------------
 

@@ -165,7 +165,8 @@ def test_detector_mtime_only_session_is_low_confidence() -> None:
     )
     with patch.object(detector_mod.psutil_scan, "scan", return_value=[]):
         with patch.object(detector_mod.lockfiles, "claude_ide_workspaces", return_value=[]):
-            info = detector.snapshot()
+            with patch.object(detector_mod.pid_tracker, "live", return_value=[]):
+                info = detector.snapshot()
 
     assert info["warm"].confidence == "low"
     assert info["warm"].source == ["mtime"]
@@ -179,6 +180,7 @@ def test_detector_skips_old_sessions() -> None:
     )
     with patch.object(detector_mod.psutil_scan, "scan", return_value=[]):
         with patch.object(detector_mod.lockfiles, "claude_ide_workspaces", return_value=[]):
-            info = detector.snapshot()
+            with patch.object(detector_mod.pid_tracker, "live", return_value=[]):
+                info = detector.snapshot()
 
     assert info == {}

@@ -110,43 +110,6 @@ TransferModal Button:focus {
 }
 """
 
-YOLO_MODAL_CSS = """
-YoloModeModal {
-    align: center middle;
-    background: rgba(0, 0, 0, 0.6);
-}
-
-YoloModeModal > Vertical {
-    width: 36;
-    height: auto;
-    background: $surface;
-    border: thick $primary 80%;
-    padding: 1 2;
-}
-
-YoloModeModal #title {
-    text-align: center;
-    text-style: bold;
-    width: 100%;
-}
-
-YoloModeModal #buttons {
-    width: 100%;
-    height: auto;
-    align: center middle;
-    margin-top: 1;
-}
-
-YoloModeModal Button {
-    margin: 0 1;
-    min-width: 10;
-}
-
-YoloModeModal Button:focus {
-    background: $warning;
-}
-"""
-
 APP_CSS = """
 Screen {
     layout: vertical;
@@ -155,22 +118,37 @@ Screen {
 }
 
 #title-bar {
-    height: 1;
+    height: 4;
     width: 100%;
     padding: 0 1;
     background: $surface;
 }
 
+LogoWidget {
+    width: 10;
+    height: 4;
+    margin-right: 1;
+}
+
+#logo-img {
+    width: 10;
+    height: 4;
+}
+
+#title-text {
+    width: 1fr;
+    height: 4;
+}
+
 #app-title {
     width: 1fr;
-    color: $text;
+    color: $accent;
     text-style: bold;
 }
 
 #session-count {
-    dock: right;
     color: $text-muted;
-    width: auto;
+    width: 1fr;
 }
 
 #search-row {
@@ -255,13 +233,16 @@ Screen {
 #filter-running.-active { background: #4ade80 20%; color: #4ade80; }
 #filter-recent.-active { background: #facc15 20%; color: #facc15; }
 
+#filter-mem { color: $text-muted; }
+#filter-mem.-active { background: #a78bfa 20%; color: #a78bfa; }
+
 #main-container {
     height: 1fr;
     width: 100%;
 }
 
 #results-container {
-    height: 1fr;
+    height: 12;
     width: 100%;
     overflow-x: hidden;
 }
@@ -291,7 +272,7 @@ DataTable > .datatable--hover {
 }
 
 #preview-container {
-    height: 12;
+    height: 1fr;
     border-top: solid $accent 50%;
     background: $surface;
     padding: 0 1;

@@ -17,6 +17,7 @@ dependencies = [
     "pydantic>=2.10.0",
     "sqlite-utils>=3.39",
     "tiktoken>=0.12.0",
+    "textual-image[textual]>=0.12.0",
 ]
 
 [project.scripts]
@@ -29,7 +30,10 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/heimdallr"]
-artifacts = ["src/heimdallr/running/resume_wrapper.sh"]
+artifacts = [
+    "src/heimdallr/running/resume_wrapper.sh",
+    "src/heimdallr/assets/logo.png",
+]
 
 [dependency-groups]
 dev = [

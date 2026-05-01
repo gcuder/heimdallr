@@ -61,24 +61,32 @@ def tui(query: str, agent: str | None, rebuild: bool, yolo: bool) -> None:
         search.get_all_sessions(force_refresh=True)
         click.echo("Index rebuilt.")
 
-    resume_cmd, resume_dir, session_id, agent_name = run_tui(
-        query=query, agent_filter=agent, yolo=yolo,
-    )
-    if resume_cmd:
-        if resume_dir:
-            try:
-                os.chdir(resume_dir)
-            except OSError as e:
-                click.echo(f"Could not chdir to {resume_dir}: {e}", err=True)
-        # Wrap the agent invocation through resume_wrapper.sh so its $$ (preserved
-        # across exec by POSIX) lands in spawned_pids as the agent's PID.
-        # Heimdallr can then identify "this is my session" with high confidence.
-        if session_id and agent_name:
-            wrapper = str(wrapper_path())
-            full = ["/bin/sh", wrapper, str(DB_PATH), session_id, agent_name, *resume_cmd]
-            os.execvp(full[0], full)
-        else:
-            os.execvp(resume_cmd[0], resume_cmd)
+    result = run_tui(query=query, agent_filter=agent, yolo=yolo)
+    # The TUI spawns new terminal windows itself and stays open; we only
+    # see a resume_command here when window-spawning wasn't possible
+    # (Linux, no $TERM_PROGRAM). Fall back to running the agent in this
+    # very shell.
+    if not result.resume_command:
+        return
+
+    if result.session_id and result.agent:
+        argv = [
+            "/bin/sh",
+            str(wrapper_path()),
+            str(DB_PATH),
+            result.session_id,
+            result.agent,
+            *result.resume_command,
+        ]
+    else:
+        argv = list(result.resume_command)
+
+    if result.resume_directory:
+        try:
+            os.chdir(result.resume_directory)
+        except OSError as e:
+            click.echo(f"Could not chdir to {result.resume_directory}: {e}", err=True)
+    os.execvp(argv[0], argv)
 
 
 @main.command()

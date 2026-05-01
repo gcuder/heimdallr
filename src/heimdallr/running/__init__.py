@@ -10,11 +10,15 @@ from .detector import RunningDetector, RunningSnapshot
 from .pid_tracker import SpawnedRow
 from .pid_tracker import live as pid_tracker_live
 from .resume_wrapper_path import wrapper_path
+from .terminal import TerminalRef, find_terminal_pid, spawn_new_terminal
 
 __all__ = [
     "RunningDetector",
     "RunningSnapshot",
     "SpawnedRow",
+    "TerminalRef",
+    "find_terminal_pid",
     "pid_tracker_live",
+    "spawn_new_terminal",
     "wrapper_path",
 ]

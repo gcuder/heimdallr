@@ -6,6 +6,7 @@ import threading
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
+from . import settings
 from .adapters import ToolAdapter, get_all_adapters
 from .adapters.base import ErrorCallback
 from .index import TantivyIndex
@@ -173,23 +174,46 @@ class SessionSearch:
         if not self._streaming_in_progress and self._sessions is None:
             self.get_all_sessions()
 
+        # Hidden-directory filter is applied post-Tantivy. Asking the index
+        # for `limit` more than we actually need keeps results full when most
+        # hits are filtered (the common case when claude-mem dominates).
+        hidden = _hidden_prefixes()
+        index_limit = limit * 4 if hidden else limit
+
         results = self._index.search(
             text,
             agent_filter=eff_agent,
             directory_filter=eff_dir,
             date_filter=parsed.date,
-            limit=limit,
+            limit=index_limit,
         )
 
         out: list[Session] = []
         for sid, _score in results:
             s = self._sessions_by_id.get(sid)
-            if s:
-                out.append(s)
+            if not s:
+                continue
+            if hidden and _is_hidden(s.directory, hidden):
+                continue
+            out.append(s)
+            if len(out) >= limit:
+                break
         return out
 
     def get_session_count(self, agent_filter: str | None = None) -> int:
-        return self._index.get_session_count(agent_filter)
+        total = self._index.get_session_count(agent_filter)
+        hidden = _hidden_prefixes()
+        if not hidden or self._sessions is None:
+            return total
+        # Subtract sessions whose directory falls under a hidden prefix so the
+        # "X of Y" counter in the title bar reflects what the user can see.
+        hidden_count = sum(
+            1
+            for s in self._sessions
+            if (agent_filter is None or s.agent == agent_filter)
+            and _is_hidden(s.directory, hidden)
+        )
+        return max(0, total - hidden_count)
 
     def get_agents_with_sessions(self) -> set[str]:
         return {a.name for a in self.adapters if self._index.get_session_count(a.name) > 0}
@@ -203,3 +227,23 @@ class SessionSearch:
     def get_resume_command(self, session: Session, yolo: bool = False) -> list[str]:
         a = self.get_adapter_for_session(session)
         return a.get_resume_command(session, yolo=yolo) if a else []
+
+
+def _hidden_prefixes() -> list[str]:
+    """Return the directory prefixes that should be hidden right now.
+
+    Re-resolves on each call so toggling settings.filters.hide_claude_mem
+    takes effect on the next search without restarting.
+    """
+    return settings.current().hidden_prefixes()
+
+
+def _is_hidden(directory: str, prefixes: list[str]) -> bool:
+    if not directory:
+        return False
+    for p in prefixes:
+        if not p:
+            continue
+        if directory == p or directory.startswith(p + "/"):
+            return True
+    return False

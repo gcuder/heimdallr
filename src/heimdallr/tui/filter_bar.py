@@ -30,20 +30,27 @@ class FilterBar(Horizontal):
             self.view = view
             super().__init__()
 
+    class ClaudeMemToggled(Message):
+        """Posted when the user clicks the claude-mem chip."""
+
     active_agent: reactive[str | None] = reactive(None)
     active_view: reactive[str] = reactive("all")
+    show_claude_mem: reactive[bool] = reactive(False)
 
     def __init__(
         self,
         initial_filter: str | None = None,
         initial_view: str = "all",
+        initial_show_claude_mem: bool = False,
         id: str | None = None,
     ) -> None:
         super().__init__(id=id)
         self._initial_filter = initial_filter
         self._initial_view = initial_view
+        self._initial_show_claude_mem = initial_show_claude_mem
         self._view_buttons: dict[str, Horizontal] = {}
         self._agent_buttons: dict[str | None, Horizontal] = {}
+        self._mem_button: Horizontal | None = None
 
     def compose(self):
         # View modes
@@ -64,15 +71,26 @@ class FilterBar(Horizontal):
                 yield Label(label, classes=f"filter-label agent-{key}" if key else "filter-label")
             self._agent_buttons[key] = btn
 
+        yield Label("│", classes="filter-divider")
+
+        # claude-mem visibility toggle. Active = mem sessions are visible.
+        with Horizontal(id="filter-mem", classes="filter-btn") as mem_btn:
+            yield Label("mem", classes="filter-label")
+        self._mem_button = mem_btn
+
     def on_mount(self) -> None:
         self.active_agent = self._initial_filter
         self.active_view = self._initial_view
+        self.show_claude_mem = self._initial_show_claude_mem
         self._update_styles()
 
     def watch_active_agent(self, _value: str | None) -> None:
         self._update_styles()
 
     def watch_active_view(self, _value: str) -> None:
+        self._update_styles()
+
+    def watch_show_claude_mem(self, _value: bool) -> None:
         self._update_styles()
 
     def _update_styles(self) -> None:
@@ -86,6 +104,11 @@ class FilterBar(Horizontal):
                 btn.add_class("-active")
             else:
                 btn.remove_class("-active")
+        if self._mem_button is not None:
+            if self.show_claude_mem:
+                self._mem_button.add_class("-active")
+            else:
+                self._mem_button.remove_class("-active")
 
     def set_active_agent(self, key: str | None, notify: bool = False) -> None:
         if key != self.active_agent:
@@ -98,6 +121,9 @@ class FilterBar(Horizontal):
             self.active_view = view
             if notify:
                 self.post_message(self.ViewChanged(view))
+
+    def set_show_claude_mem(self, value: bool) -> None:
+        self.show_claude_mem = value
 
     def on_click(self, event: Click) -> None:
         widget = event.widget
@@ -114,6 +140,9 @@ class FilterBar(Horizontal):
                         return
                     if target in {"claude", "codex"}:
                         self.set_active_agent(target, notify=True)
+                        return
+                    if target == "mem":
+                        self.post_message(self.ClaudeMemToggled())
                         return
                 return
             widget = widget.parent
