@@ -79,3 +79,62 @@ def test_update_persists_and_caches(monkeypatch, tmp_path) -> None:
     assert settings.current().filters.hide_claude_mem is False
     # Disk reflects the update.
     assert "hide_claude_mem = false" in settings.CONFIG_PATH.read_text()
+
+
+def test_full_roundtrip_all_sections(monkeypatch, tmp_path) -> None:
+    _stub_path(monkeypatch, tmp_path)
+    s = settings.Settings()
+    s.display.theme = "nord"
+    s.display.show_logo = False
+    s.display.sort_mode = "running"
+    s.display.show_preview = False
+    s.filters.default_agent = "claude"
+    s.filters.default_view = "running"
+    s.resume.yolo_default = True
+    s.resume.prefer_ide = True
+    s.transfer.target_ide = "Cursor"
+    s.notifications.default_timeout_s = 1.5
+    s.notifications.error_timeout_s = 8.0
+    s.notifications.auto_dismiss_errors = False
+    s.keybindings.overrides = {"resume_session": "ctrl+enter", "settings": "comma"}
+
+    settings.save(s)
+    out = settings.load()
+    assert out.display.theme == "nord"
+    assert out.display.show_logo is False
+    assert out.display.sort_mode == "running"
+    assert out.display.show_preview is False
+    assert out.filters.default_agent == "claude"
+    assert out.filters.default_view == "running"
+    assert out.resume.yolo_default is True
+    assert out.resume.prefer_ide is True
+    assert out.transfer.target_ide == "Cursor"
+    assert out.notifications.default_timeout_s == 1.5
+    assert out.notifications.error_timeout_s == 8.0
+    assert out.notifications.auto_dismiss_errors is False
+    assert out.keybindings.overrides == {
+        "resume_session": "ctrl+enter",
+        "settings": "comma",
+    }
+
+
+def test_default_agent_blank_means_all(monkeypatch, tmp_path) -> None:
+    _stub_path(monkeypatch, tmp_path)
+    s = settings.Settings()
+    # Empty string in TOML reads back as None (== "all agents")
+    settings.save(s)
+    assert settings.load().filters.default_agent is None
+
+
+def test_reset_section_replaces_only_targeted_section(monkeypatch, tmp_path) -> None:
+    _stub_path(monkeypatch, tmp_path)
+    s = settings.current()
+    s.display.theme = "dracula"
+    s.filters.hide_claude_mem = False
+    settings.update(s)
+
+    settings.reset_section("display")
+
+    fresh = settings.current()
+    assert fresh.display.theme == "textual-dark"  # reset
+    assert fresh.filters.hide_claude_mem is False  # untouched

@@ -110,6 +110,159 @@ TransferModal Button:focus {
 }
 """
 
+SETTINGS_MODAL_CSS = """
+SettingsModal {
+    align: center middle;
+    background: rgba(0, 0, 0, 0.6);
+}
+
+#settings-root {
+    width: 90%;
+    height: 85%;
+    max-width: 120;
+    max-height: 40;
+    background: $surface;
+    border: thick $primary 80%;
+    padding: 1 2;
+}
+
+#settings-title {
+    text-align: center;
+    text-style: bold;
+    width: 100%;
+    margin-bottom: 1;
+    color: $accent;
+}
+
+#settings-body {
+    height: 1fr;
+    width: 100%;
+}
+
+#settings-nav {
+    width: 22;
+    height: 100%;
+    margin-right: 1;
+}
+
+#section-list {
+    height: 100%;
+    background: transparent;
+    border: solid $primary-background-lighten-2;
+}
+
+#section-list > ListItem {
+    padding: 0 1;
+    background: transparent;
+}
+
+#section-list > ListItem:hover {
+    background: $accent 15%;
+}
+
+#section-list > ListItem.--highlight {
+    background: $accent 25%;
+    color: $accent;
+    text-style: bold;
+}
+
+#settings-pane {
+    width: 1fr;
+    height: 100%;
+    padding: 0 2;
+}
+
+.section-panel {
+    height: auto;
+    width: 100%;
+}
+
+.section-panel.hidden {
+    display: none;
+}
+
+.section-heading {
+    text-style: bold;
+    color: $accent;
+    margin-bottom: 1;
+}
+
+.setting-row {
+    height: auto;
+    margin-bottom: 1;
+    align: left middle;
+}
+
+.setting-label {
+    width: 28;
+    color: $text-muted;
+    padding: 0 1 0 0;
+    content-align: left middle;
+}
+
+.setting-help {
+    color: $text-muted;
+    margin-bottom: 1;
+    padding: 0 0 0 28;
+}
+
+.settings-textarea {
+    height: 6;
+    width: 100%;
+    border: solid $primary-background-lighten-2;
+    background: $surface;
+    margin-bottom: 1;
+}
+
+.settings-input-narrow {
+    width: 12;
+    border: solid $primary-background-lighten-2;
+    background: $surface;
+}
+
+.diag-value {
+    width: 1fr;
+    color: $text;
+}
+
+.key-current {
+    width: 16;
+    color: #facc15;
+    text-style: bold;
+    content-align: left middle;
+}
+
+.capture-btn {
+    margin: 0 1;
+    min-width: 10;
+}
+
+.reset-section-btn {
+    margin-top: 1;
+    background: $primary-background-lighten-1;
+}
+
+#settings-hint {
+    text-align: center;
+    color: $text-muted;
+    margin-top: 1;
+    width: 100%;
+}
+
+SettingsModal Switch {
+    background: $primary-background-lighten-1;
+}
+
+SettingsModal Switch.-on {
+    background: $accent 70%;
+}
+
+SettingsModal Select {
+    width: 32;
+    background: $primary-background-lighten-1;
+}
+"""
+
 APP_CSS = """
 Screen {
     layout: vertical;

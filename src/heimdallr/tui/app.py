@@ -75,6 +75,7 @@ class HeimdallrApp(App):
         Binding("p", "toggle_pin", "Pin", show=False),
         Binding("m", "toggle_claude_mem", "Mem", show=False),
         Binding("o", "cycle_sort", "Sort", show=False),
+        Binding("s", "settings", "Settings"),
         Binding("question_mark", "help", "Help", show=False),
         Binding("ctrl+p", "command_palette", "Cmds"),
     ]
@@ -97,10 +98,16 @@ class HeimdallrApp(App):
         yolo: bool = False,
     ):
         super().__init__()
+        s = settings.current()
+        # Seed reactives + state from persisted settings before mount.
+        self.theme = s.display.theme
+        self.sort_mode = s.display.sort_mode
+        self.show_preview = s.display.show_preview
+        self.active_view = s.filters.default_view
         self.search_engine = SessionSearch()
         self.initial_query = initial_query
-        self.agent_filter = agent_filter
-        self.yolo = yolo
+        self.agent_filter = agent_filter if agent_filter is not None else s.filters.default_agent
+        self.yolo = yolo or s.resume.yolo_default
         self.sessions: list[Session] = []
         self._resume_command: list[str] | None = None
         self._resume_directory: str | None = None
@@ -117,9 +124,11 @@ class HeimdallrApp(App):
     # ---- composition ------------------------------------------------------
 
     def compose(self) -> ComposeResult:
+        s = settings.current()
         with Vertical():
             with Horizontal(id="title-bar"):
-                yield LogoWidget()
+                if s.display.show_logo:
+                    yield LogoWidget()
                 with Vertical(id="title-text"):
                     yield Label(f"heimdallr v{__version__}", id="app-title")
                     yield Label("", id="session-count")
@@ -138,8 +147,8 @@ class HeimdallrApp(App):
 
             yield FilterBar(
                 initial_filter=self.agent_filter,
-                initial_view="all",
-                initial_show_claude_mem=not settings.current().filters.hide_claude_mem,
+                initial_view=s.filters.default_view,
+                initial_show_claude_mem=not s.filters.hide_claude_mem,
                 id="filter-container",
             )
 
@@ -483,7 +492,7 @@ class HeimdallrApp(App):
 
         bookmarks.record_open(sess.id)
 
-        if spawn_new_terminal(directory, argv):
+        if spawn_new_terminal(directory, argv, app=settings.current().resume.terminal):
             self.notify(
                 f"Resumed in new terminal — {sess.title[:40]}", timeout=3
             )
@@ -511,25 +520,28 @@ class HeimdallrApp(App):
         ]
 
     def _jump_to_running_window(self, running: RunningInfo) -> bool:
-        """Bring the window hosting `running` to the front. Try the agent's
-        host terminal first; fall back to the attached IDE. Returns True if
-        any activation succeeded."""
-        if running.pid:
-            term = find_terminal_pid(running.pid)
-            if term is not None:
-                ok, msg = activate_pid(term.pid, term.name)
+        """Bring the window hosting `running` to the front. Order is driven
+        by `resume.prefer_ide`: terminal-first by default, IDE-first when
+        the user has the editor as their main work surface."""
+        prefer_ide = settings.current().resume.prefer_ide
+        order = ("ide", "terminal") if prefer_ide else ("terminal", "ide")
+        for kind in order:
+            if kind == "terminal" and running.pid:
+                term = find_terminal_pid(running.pid)
+                if term is not None:
+                    ok, msg = activate_pid(term.pid, term.name)
+                    if ok:
+                        self.notify(f"Jumped to {term.name}", timeout=3)
+                        return True
+                    logger.debug("activate_pid(terminal=%s) failed: %s", term.name, msg)
+                else:
+                    logger.debug("find_terminal_pid(pid=%s) returned no match", running.pid)
+            elif kind == "ide" and running.ide_pid:
+                ok, msg = activate_pid(running.ide_pid, running.ide)
                 if ok:
-                    self.notify(f"Jumped to {term.name}", timeout=3)
+                    self.notify(f"Jumped to {running.ide}", timeout=3)
                     return True
-                logger.debug("activate_pid(terminal=%s) failed: %s", term.name, msg)
-            else:
-                logger.debug("find_terminal_pid(pid=%s) returned no match", running.pid)
-        if running.ide_pid:
-            ok, msg = activate_pid(running.ide_pid, running.ide)
-            if ok:
-                self.notify(f"Jumped to {running.ide}", timeout=3)
-                return True
-            logger.debug("activate_pid(ide=%s) failed: %s", running.ide, msg)
+                logger.debug("activate_pid(ide=%s) failed: %s", running.ide, msg)
         return False
 
     # ---- ui actions -------------------------------------------------------
@@ -613,6 +625,11 @@ class HeimdallrApp(App):
         from .help_modal import HelpModal
 
         self.push_screen(HelpModal())
+
+    def action_settings(self) -> None:
+        from .settings_modal import SettingsModal
+
+        self.push_screen(SettingsModal())
 
     def action_transfer(self) -> None:
         """Open the transfer modal for the selected session."""
@@ -737,6 +754,82 @@ class HeimdallrApp(App):
             timeout=2,
         )
         self._do_search(self._current_query)
+
+    # ---- settings live-apply ---------------------------------------------
+
+    def on_setting_changed(self, event) -> None:  # type: ignore[no-untyped-def]
+        """Live-apply settings as they're toggled in the SettingsModal."""
+        from .settings_modal import SettingChanged
+
+        if not isinstance(event, SettingChanged):
+            return
+        s = settings.current()
+
+        if event.section == "display":
+            if event.field in ("theme", "*"):
+                self.theme = s.display.theme
+            if event.field in ("show_logo", "*"):
+                try:
+                    self.query_one(LogoWidget).display = s.display.show_logo
+                except Exception:
+                    # Logo wasn't composed (started with show_logo=False) —
+                    # toggle takes effect on next launch.
+                    pass
+            if event.field in ("sort_mode", "*"):
+                self.sort_mode = s.display.sort_mode
+                self._refresh_table()
+            if event.field in ("show_preview", "*"):
+                self.show_preview = s.display.show_preview
+                self._apply_preview_visibility()
+
+        elif event.section == "filters":
+            if event.field in ("hide_claude_mem", "*"):
+                try:
+                    self.query_one(FilterBar).set_show_claude_mem(
+                        not s.filters.hide_claude_mem
+                    )
+                except Exception:
+                    pass
+            if event.field in ("default_agent", "*"):
+                self._set_filter(s.filters.default_agent)
+                return  # _set_filter triggers a search on its own
+            if event.field in ("default_view", "*"):
+                self.action_view_mode(s.filters.default_view)
+                return
+            self._do_search(self._current_query)
+
+        elif event.section in ("resume", "transfer"):
+            # No live UI effect — picked up at next resume / transfer.
+            pass
+
+        elif event.section == "notifications":
+            # Picked up via settings.current() at notify-time. No action.
+            pass
+
+        elif event.section == "keybindings":
+            # Effective on next launch — Textual rebinding mid-session is
+            # not safely supported. Notification was already shown by the
+            # capture handler.
+            pass
+
+    def _refresh_table(self) -> None:
+        try:
+            table = self.query_one(ResultsTable)
+        except NoMatches:
+            return
+        self.selected_session = table.update_sessions(
+            self._apply_view_filter(self.sessions), self._current_query
+        )
+
+    def _apply_preview_visibility(self) -> None:
+        try:
+            container = self.query_one("#preview-container")
+        except NoMatches:
+            return
+        if self.show_preview:
+            container.remove_class("hidden")
+        else:
+            container.add_class("hidden")
 
     # ---- exit-time handoff to CLI ----------------------------------------
 

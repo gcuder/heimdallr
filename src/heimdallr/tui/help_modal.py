@@ -32,6 +32,7 @@ _HELP: list[tuple[str, list[tuple[str, str]]]] = [
             ("t", "Open transfer modal (compact + inject context)"),
             ("p", "Pin / unpin the highlighted session"),
             ("m", "Toggle visibility of claude-mem observer sessions"),
+            ("s", "Open the settings screen"),
             ("i", "Bring the attached IDE window to the front"),
             ("r", "Force a full rescan + reindex"),
         ],
