@@ -10,16 +10,29 @@ A TUI that lists every Claude Code and Codex CLI session on your machine, lets y
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│ heimdallr v0.1.0                                  42 sessions  ● 3 running  │
+│ ⚔  heimdallr v0.2.0                              42 sessions · ● 3 running │
+│                                                                             │
 │ 🔍 Search titles & messages.  agent:claude  date:today        [12.4ms]      │
-│ [All] [Running] [Recent]   │   [claude] [codex]                              │
+│ [All] [Running] [Recent]   │   [claude] [codex]   │   [mem]                  │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │ Agent       Title                          Directory       Turns   Date     │
 │ ● claude    ★ Heimdallr architecture plan  ~/repos/heim..   12   2 min ago  │
 │ ● codex     Refactor adapter registry      ~/repos/cf       8    14 min ago │
 │ ● claude    Fix flaky test in scanner      ~/repos/cf       43   17:02      │
-│   claude    Plan rollout for v0.2.0        ~/repos/heim..   5    yesterday  │
-│ ◌ claude    Investigate psutil crash       ~/repos/fr       22   2 days ago │
+│   claude    Plan rollout for v0.3.0        ~/repos/heim..   5    yesterday  │
+├─────────────────────────────────────────────────────────────────────────────┤
+│ ● Heimdallr architecture plan                  running · 23m · iTerm2       │
+│ claude · ~/repos/heimdallr · ad81f9c2                                       │
+│ ─────                                                                       │
+│ 12 user · 30 asst · 8 code blocks · 18,402 chars                            │
+│ started 3 hours ago · last activity 2 minutes ago · ★ pinned                │
+│ ─────                                                                       │
+│ Initial prompt                                                              │
+│   refactor TUI so list is entry-point, summary fills screen…                │
+│ ─────                                                                       │
+│ Latest exchange                                                             │
+│   » move on to the next thing                                               │
+│   ● claude  Got it — switching to the resume flow now…                      │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -51,7 +64,14 @@ hmd tui --rebuild      # force a full reindex from disk before opening
 
 heimdallr scans `~/.claude/projects/*/*.jsonl` and `~/.codex/sessions/YYYY/MM/DD/*.jsonl` and keeps a Tantivy full-text index in `~/.cache/heimdallr/tantivy/`. First run takes a few seconds for a thousand sessions; subsequent runs are instant via incremental mtime-based reindex.
 
-Press **enter** on a session and heimdallr replaces its own process with `claude --resume <id>` (or `codex resume <id>`) in that session's original directory. The parent shell sees no overhead — it's as if you'd typed the command yourself.
+The session list is the **entry point** — a compact ~10-row table at the top. The bulk of the screen is a structured summary of the highlighted session: header (running pill + duration), identity, activity metrics (turn counts, code blocks, age, last activity), the original prompt, and the latest exchange.
+
+**Resume is smart**: pressing **enter** does the right thing depending on whether the session is already running.
+
+- If a `claude` / `codex` process for the session is alive, heimdallr walks its parent process tree to find the host terminal (iTerm2, Terminal.app, WezTerm, Alacritty, kitty, Ghostty, …) and brings that window forward via `osascript`. Falls back to the attached IDE window if no terminal ancestor is found. heimdallr stays open.
+- If the session isn't running, heimdallr opens a **new terminal window** in the session's original directory (auto-detecting your terminal app from `$TERM_PROGRAM`) and continues running so you can launch the next one.
+
+Press **shift+enter** to resume in YOLO mode (Claude `--dangerously-skip-permissions`).
 
 ### Running detection
 
@@ -87,6 +107,27 @@ heimdallr decides automatically whether to inline the context (`claude -p ...` o
 
 Press **p** to mark a session as pinned. Pinned sessions are prefixed with **★** and rank first under the "pinned" sort mode. Pins persist across runs (table `bookmarks`).
 
+### Settings
+
+Press **s** to open the settings screen — a sectioned modal with live-apply (no Save button; every change writes to `~/.config/heimdallr/config.toml` immediately).
+
+| Section | Knobs |
+| --- | --- |
+| **Display** | Theme, show logo in title bar, default sort mode, preview pane visible by default |
+| **Filters** | Hide claude-mem sessions, default agent filter, hidden directory prefixes (multi-line) |
+| **Sessions** | Default view (all / running / recent) |
+| **Resume** | Terminal app override, YOLO by default, prefer IDE over terminal when jumping |
+| **Transfer** | Target IDE preference for context injection |
+| **Notifications** | Default + error timeout (seconds), auto-dismiss errors |
+| **Keybindings** | Per-action capture override; effective on next launch |
+| **Diagnostics** | Version + every path heimdallr touches, with "reveal in Finder" buttons |
+
+Each section has a **Reset section** button. The whole screen closes with `Esc` without quitting hmd.
+
+### Hide claude-mem observer sessions
+
+If you use the [claude-mem](https://github.com/thedotmack/claude-mem) plugin, your `~/.claude/projects/` likely contains thousands of short observer sub-sessions. heimdallr hides anything under `~/.claude-mem/` by default. Press **m** (or toggle the `mem` chip in the filter bar) to show them again. Persistent — controlled by `filters.hide_claude_mem` in the config.
+
 ### Jump to attached IDE
 
 If a session is attached to PyCharm / WebStorm / VSCode (heimdallr knows because of the IDE lockfile), press **i** to bring that IDE app to the foreground. macOS uses `osascript` targeting by PID; Linux falls back to `wmctrl`.
@@ -121,10 +162,13 @@ heimdallr reads `~/.claude/ide/<port>.lock` files to know which IDE has Claude a
 
 | Key | Action |
 | --- | --- |
-| `enter` | Resume the highlighted session (heimdallr exits, agent runs) |
+| `enter` | Resume — jump to running terminal/IDE, or spawn a new terminal window |
+| `shift+enter` | Resume in YOLO mode (Claude `--dangerously-skip-permissions`) |
 | `c` | Copy resume command to clipboard |
 | `t` | Open transfer modal |
 | `p` | Pin / unpin highlighted session |
+| `m` | Toggle visibility of claude-mem observer sessions |
+| `s` | Open the settings screen |
 | `i` | Bring the attached IDE window to the front |
 | `r` | Force a full rescan + reindex |
 | `1` `2` `3` | View modes: All / Running / Recent |
@@ -135,11 +179,10 @@ heimdallr reads `~/.claude/ide/<port>.lock` files to know which IDE has Claude a
 | `escape` | Defocus search (or quit if already defocused) |
 | `q` `ctrl+c` | Quit |
 | `ctrl+\`` | Toggle preview pane |
-| `+` `-` | Resize preview pane |
 | `tab` | Accept search autocomplete |
-| `?` | Open this help inside the TUI |
+| `?` | Open the help overlay inside the TUI |
 
-The same list is available inside the app via `?`.
+Keybindings can be overridden in **Settings → Keybindings** (effective on next launch). The same list is available inside the app via `?`.
 
 ## Configuration
 
@@ -147,11 +190,46 @@ heimdallr follows the XDG base-dir spec:
 
 | Path | Contents |
 | --- | --- |
+| `~/.config/heimdallr/config.toml` | User settings (themes, filters, resume, keybindings) |
 | `~/.cache/heimdallr/tantivy/` | Tantivy full-text index |
 | `~/.local/share/heimdallr/state.db` | SQLite — bookmarks, spawned PIDs, transfer history |
 | `~/.local/state/heimdallr/heimdallr.log` | Parse-error log |
 
-Override the location of any of these by setting `XDG_CACHE_HOME` / `XDG_DATA_HOME` / `XDG_STATE_HOME`.
+Override the location of any of these by setting `XDG_CONFIG_HOME` / `XDG_CACHE_HOME` / `XDG_DATA_HOME` / `XDG_STATE_HOME`.
+
+`config.toml` is normally edited via the in-TUI settings screen (`s`), but it's plain TOML if you want to hand-edit:
+
+```toml
+[display]
+theme = "nord"
+show_logo = true
+sort_mode = "recent"
+show_preview = true
+
+[filters]
+hide_claude_mem = true
+hide_directories = ["~/scratch"]
+default_agent = ""        # "" = all agents
+default_view = "all"
+
+[resume]
+terminal = ""             # "" = auto-detect from $TERM_PROGRAM
+yolo_default = false
+prefer_ide = false
+
+[transfer]
+target_ide = ""           # "" = auto
+
+[notifications]
+default_timeout_s = 3.0
+error_timeout_s = 5.0
+auto_dismiss_errors = true
+
+[keybindings.overrides]
+# action = "key", e.g. resume_session = "ctrl+r"
+```
+
+Missing keys or sections fall back to defaults; malformed TOML is ignored without crashing the app.
 
 ## Troubleshooting
 
