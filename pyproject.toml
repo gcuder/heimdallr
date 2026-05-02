@@ -1,6 +1,6 @@
 [project]
 name = "heimdallr"
-version = "0.2.0"
+version = "0.2.1"
 description = "TUI for managing Claude Code and Codex sessions — list, resume, detect running, transfer context"
 readme = "README.md"
 license = { text = "MIT" }
@@ -17,6 +17,7 @@ classifiers = [
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Topic :: Software Development",
     "Topic :: Terminals",
     "Topic :: Utilities",
