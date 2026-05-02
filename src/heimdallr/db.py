@@ -36,10 +36,12 @@ def open_db(path: Path | None = None) -> sqlite_utils.Database:
 
 
 def _migrate(db: sqlite_utils.Database) -> None:
-    if "schema_version" not in db.table_names():
-        db["schema_version"].insert({"version": 0}, pk="version")  # type: ignore[arg-type]
+    db["schema_version"].create({"version": int}, pk="version", if_not_exists=True)
 
     rows = list(db["schema_version"].rows)
+    if not rows:
+        db["schema_version"].upsert({"version": 0}, pk="version")  # type: ignore[arg-type]
+        rows = list(db["schema_version"].rows)
     version = rows[0]["version"] if rows else 0
 
     if version < 1:
